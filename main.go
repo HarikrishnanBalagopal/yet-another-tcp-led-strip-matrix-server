@@ -1,10 +1,10 @@
 package main
 
 import (
-	"math"
 	"net"
 	"time"
 
+	"github.com/crazy3lf/colorconv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,10 +17,12 @@ func must(err error) {
 func fill_leds(leds []byte, t float32) {
 	const num_rows = 13
 	const num_cols = num_rows
-	var cen_x = 0.5*float32(math.Cos(float64(t))) + 0.5
-	const cen_y = 0.0
-	const cir_r = 0.5
-	const cir_r2 = cir_r * cir_r
+	const mid_row = num_rows / 2
+	const mid_col = num_cols / 2
+	// var cen_x = 0.5*float32(math.Cos(float64(t))) + 0.5
+	// const cen_y = 0.0
+	// const cir_r = 0.5
+	// const cir_r2 = cir_r * cir_r
 	for row := 0; row < num_rows; row++ {
 		for _col := 0; _col < num_cols; _col++ {
 			col := _col
@@ -28,18 +30,33 @@ func fill_leds(leds []byte, t float32) {
 				col = num_cols - 1 - _col
 			}
 			idx := 3 * (row*num_cols + _col)
-			x := float32(col) / float32(num_cols)
-			y := float32(row) / float32(num_rows)
-			dx := (x - cen_x)
-			dy := (y - cen_y)
-			dist2 := dx*dx + dy*dy
-			var red byte = 0
-			if dist2 <= cir_r2 {
-				red = 255
+			row_d := row - mid_row
+			if row_d < 0 {
+				row_d = -row_d
 			}
+			col_d := col - mid_col
+			if col_d < 0 {
+				col_d = -col_d
+			}
+			rect_id := row_d
+			if col_d > row_d {
+				rect_id = col_d
+			}
+
+			// x := float32(col) / float32(num_cols)
+			// y := float32(row) / float32(num_rows)
+			// dx := (x - cen_x)
+			// dy := (y - cen_y)
+			// dist2 := dx*dx + dy*dy
+			red, green, blue, err := colorconv.HSLToRGB(float64((int(t*25)+rect_id*30)%360), 1.0, 0.5)
+			must(err)
+			// var red byte = 0
+			// if dist2 <= cir_r2 {
+			// 	red = 255
+			// }
 			leds[idx+0] = red
-			leds[idx+1] = 0
-			leds[idx+2] = 0
+			leds[idx+1] = green
+			leds[idx+2] = blue
 		}
 	}
 }
