@@ -1,11 +1,13 @@
 package main
 
 import (
-	"math"
+	"errors"
 	"net"
-	"time"
+	"net/http"
+	"syscall"
 
-	"github.com/crazy3lf/colorconv"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,85 +17,20 @@ func must(err error) {
 	}
 }
 
-func fract(x float64) float64 {
-	return x - math.Floor(x)
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
 }
 
-func fill_leds(leds []byte, t float32) {
-	const num_rows = 13
-	const num_cols = num_rows
-	// const mid_row = num_rows / 2
-	// const mid_col = num_cols / 2
-	// var cen_x = 0.5*float32(math.Cos(float64(t))) + 0.5
-	// const cen_y = 0.0
-	// const cir_r = 0.5
-	// const cir_r2 = cir_r * cir_r
-	const total_cells = num_rows * num_cols
-	const total_cells_idx = total_cells * 3
-	const t_speed = 0.05
-	head_pos := fract(float64(t * t_speed))
+const expected_length = 13 * 13 * 4
+const rgb_frame_length = 13 * 13 * 3
 
-	var param float64 = 0.0
-	const param_step float64 = 1.0 / float64(total_cells)
-	for idx := 0; idx < total_cells_idx; idx += 3 {
-		// leds[idx+0] = 0
-		// leds[idx+1] = 0
-		// leds[idx+2] = 0
-		// head_pos_idx := head_pos * 3
-		dist := math.Abs(param - head_pos)
-		mask := 10 * math.Max((1.0/10.0)-dist, 0.0)
-		mask2 := mask * mask
-		// red := byte(255 * mask2)
-		red, green, blue, err := colorconv.HSLToRGB(mask2*359.0, 1.0, 0.5*mask2)
-		// must(err)
-		if err != nil {
-			logrus.Fatalf("failed on mask %f . error: %q", mask, err)
-		}
-		leds[idx+0] = red
-		leds[idx+1] = green
-		leds[idx+2] = blue
-		param += param_step
-	}
-	// for row := 0; row < num_rows; row++ {
-	// 	for _col := 0; _col < num_cols; _col++ {
-	// 		col := _col
-	// 		if row%2 == 1 {
-	// 			col = num_cols - 1 - _col
-	// 		}
-	// 		idx := 3 * (row*num_cols + _col)
-	// 		row_d := row - mid_row
-	// 		if row_d < 0 {
-	// 			row_d = -row_d
-	// 		}
-	// 		col_d := col - mid_col
-	// 		if col_d < 0 {
-	// 			col_d = -col_d
-	// 		}
-	// 		rect_id := row_d
-	// 		if col_d > row_d {
-	// 			rect_id = col_d
-	// 		}
-
-	// 		// x := float32(col) / float32(num_cols)
-	// 		// y := float32(row) / float32(num_rows)
-	// 		// dx := (x - cen_x)
-	// 		// dy := (y - cen_y)
-	// 		// dist2 := dx*dx + dy*dy
-	// 		red, green, blue, err := colorconv.HSLToRGB(float64((int(t*25)+rect_id*30)%360), 1.0, 0.5)
-	// 		must(err)
-	// 		// var red byte = 0
-	// 		// if dist2 <= cir_r2 {
-	// 		// 	red = 255
-	// 		// }
-	// 		leds[idx+0] = red
-	// 		leds[idx+1] = green
-	// 		leds[idx+2] = blue
-	// 	}
-	// }
-}
+var rgb_frame = make([]byte, rgb_frame_length)
 
 func main() {
 	logrus.Infof("main start")
+
+	logrus.Infof("tcp setup start")
 	remoteAddr := net.TCPAddr{
 		// IP:   net.IPv4(192, 168, 0, 8),
 		IP:   net.IPv4(192, 168, 0, 5),
@@ -103,24 +40,90 @@ func main() {
 	must(err)
 	defer conn.Close()
 
-	const n_total = 3 * 13 * 13
-	leds := make([]byte, n_total)
-	var t float32 = 0.0
-	logrus.Infof("starting animation")
-	for {
-		fill_leds(leds, t)
-		t += 0.1
-		// logrus.Infof("leds: %+v", leds)
-		{
+	frame_chan := make(chan interface{}, 10)
+
+	go func() {
+		logrus.Infof("waiting for frames in another thread")
+		for {
+			<-frame_chan // wait for a frame to arrive
+			logrus.Infof("got a new frame: %+v", rgb_frame)
+			// logrus.Infof("leds: %+v", leds)
 			_, err := conn.Write([]byte("frame1234\n"))
-			must(err)
+			if err != nil {
+				if errors.Is(err, syscall.EPIPE) {
+					logrus.Errorf("it's a  write: broken pipe error, retry connection")
+					conn.Close() // Is this required?
+					conn, err = net.DialTCP("tcp", nil, &remoteAddr)
+					if err != nil {
+						logrus.Fatalf("failed to reconnect over TCP. error: %q", err)
+					}
+					// defer conn.Close()
+				} else {
+					logrus.Fatalf("failed to write to the TCP connection. error: %q", err)
+				}
+			}
+			n, err := conn.Write(rgb_frame)
+			if err != nil {
+				if errors.Is(err, syscall.EPIPE) {
+					logrus.Errorf("it's a  write: broken pipe error, retry connection")
+					conn.Close() // Is this required?
+					conn, err = net.DialTCP("tcp", nil, &remoteAddr)
+					if err != nil {
+						logrus.Fatalf("failed to reconnect over TCP. error: %q", err)
+					}
+					// defer conn.Close()
+				} else {
+					logrus.Fatalf("failed to write to the TCP connection. error: %q", err)
+				}
+			}
+			if n != rgb_frame_length {
+				logrus.Fatalf("expected: %d actual n: %d", rgb_frame_length, n)
+			}
+			logrus.Infof("sent the new frame over the TCP connection")
+			// time.Sleep((1000 / 60) * time.Millisecond)
 		}
-		n, err := conn.Write(leds)
-		must(err)
-		if n != n_total {
-			logrus.Fatalf("expected: %d actual n: %d", n_total, n)
-		}
-		time.Sleep((1000 / 60) * time.Millisecond)
+	}()
+	logrus.Infof("tcp setup end")
+
+	router := mux.NewRouter()
+	if router == nil {
+		panic("nil router")
 	}
-	// logrus.Infof("main end")
+	router.PathPrefix("/ws").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logrus.Errorf("failed to upgrade to a websocket")
+			return
+		}
+		conn.WriteJSON(map[string]string{"msg": "hello world from the web socket server"})
+		conn.WriteMessage(websocket.BinaryMessage, []byte("this is a binary message from the server"))
+		for {
+			msgtype, frame, err := conn.ReadMessage()
+			if err != nil {
+				logrus.Errorf("failed to read a message from the websocket. error: %q", err)
+				return
+			}
+			if msgtype != websocket.BinaryMessage {
+				logrus.Errorf("expected a binary message on the websocket. actual: '%s'", string(frame))
+				continue
+			}
+			if len(frame) != expected_length {
+				logrus.Errorf("expected length '%d'. actual length: '%d'", expected_length, len(frame))
+				continue
+			}
+			logrus.Infof("got a binary message on the websocket of length: %d\n%+v", len(frame), frame)
+			for src, dst := 0, 0; dst < rgb_frame_length; src, dst = src+4, dst+3 {
+				rgb_frame[dst+0] = frame[src+0]
+				rgb_frame[dst+1] = frame[src+1]
+				rgb_frame[dst+2] = frame[src+2]
+			}
+			frame_chan <- nil
+		}
+	})
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("public")))
+	logrus.Infof("listening on port 8080 -> http://127.0.0.1:8080/")
+	if err := http.ListenAndServe(":8080", router); err != nil {
+		panic(err)
+	}
+	logrus.Infof("main end")
 }
