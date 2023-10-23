@@ -27,8 +27,19 @@ const rgb_frame_length = 13 * 13 * 3
 
 var rgb_frame = make([]byte, rgb_frame_length)
 
+func setup() {
+	for i := 0; i < rgb_frame_length; i++ {
+		if i%2 == 0 {
+			rgb_frame[i] = 0
+		} else {
+			rgb_frame[i] = 255
+		}
+	}
+}
+
 func main() {
 	logrus.Infof("main start")
+	setup()
 
 	logrus.Infof("tcp setup start")
 	remoteAddr := net.TCPAddr{
@@ -41,41 +52,32 @@ func main() {
 	defer conn.Close()
 
 	frame_chan := make(chan interface{}, 10)
+	frame_chan <- nil
 
 	go func() {
 		logrus.Infof("waiting for frames in another thread")
 		for {
 			<-frame_chan // wait for a frame to arrive
-			logrus.Infof("got a new frame: %+v", rgb_frame)
+			// logrus.Infof("got a new frame: %+v", rgb_frame)
 			// logrus.Infof("leds: %+v", leds)
 			_, err := conn.Write([]byte("frame1234\n"))
 			if err != nil {
 				if errors.Is(err, syscall.EPIPE) {
-					logrus.Errorf("it's a  write: broken pipe error, retry connection")
+					logrus.Errorf("failed to write frame1234 it's a  write: broken pipe error, retry connection")
 					conn.Close() // Is this required?
 					conn, err = net.DialTCP("tcp", nil, &remoteAddr)
 					if err != nil {
 						logrus.Fatalf("failed to reconnect over TCP. error: %q", err)
 					}
 					// defer conn.Close()
+					_, err := conn.Write([]byte("frame1234\n"))
+					must(err)
 				} else {
 					logrus.Fatalf("failed to write to the TCP connection. error: %q", err)
 				}
 			}
 			n, err := conn.Write(rgb_frame)
-			if err != nil {
-				if errors.Is(err, syscall.EPIPE) {
-					logrus.Errorf("it's a  write: broken pipe error, retry connection")
-					conn.Close() // Is this required?
-					conn, err = net.DialTCP("tcp", nil, &remoteAddr)
-					if err != nil {
-						logrus.Fatalf("failed to reconnect over TCP. error: %q", err)
-					}
-					// defer conn.Close()
-				} else {
-					logrus.Fatalf("failed to write to the TCP connection. error: %q", err)
-				}
-			}
+			must(err)
 			if n != rgb_frame_length {
 				logrus.Fatalf("expected: %d actual n: %d", rgb_frame_length, n)
 			}
@@ -111,12 +113,25 @@ func main() {
 				logrus.Errorf("expected length '%d'. actual length: '%d'", expected_length, len(frame))
 				continue
 			}
-			logrus.Infof("got a binary message on the websocket of length: %d\n%+v", len(frame), frame)
-			for src, dst := 0, 0; dst < rgb_frame_length; src, dst = src+4, dst+3 {
-				rgb_frame[dst+0] = frame[src+0]
-				rgb_frame[dst+1] = frame[src+1]
-				rgb_frame[dst+2] = frame[src+2]
+			// logrus.Infof("got a binary message on the websocket of length: %d\n%+v", len(frame), frame)
+			for row := 0; row < 13; row++ {
+				for col := 0; col < 13; col++ {
+					src := 4 * (row*13 + col)
+					col_alt := col
+					if row%2 == 1 {
+						col_alt = 13 - 1 - col
+					}
+					dst := 3 * (row*13 + col_alt)
+					rgb_frame[dst+0] = frame[src+0]
+					rgb_frame[dst+1] = frame[src+1]
+					rgb_frame[dst+2] = frame[src+2]
+				}
 			}
+			// for src, dst := 0, 0; dst < rgb_frame_length; src, dst = src+4, dst+3 {
+			// 	rgb_frame[dst+0] = frame[src+0]
+			// 	rgb_frame[dst+1] = frame[src+1]
+			// 	rgb_frame[dst+2] = frame[src+2]
+			// }
 			frame_chan <- nil
 		}
 	})
