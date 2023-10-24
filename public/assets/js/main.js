@@ -48,6 +48,10 @@ const main = () => {
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        // ctx.rotate(Math.PI);
+        // ctx.translate(0, 0);
+        ctx.scale(-1, -1);
+        ctx.translate(-W, -H);
         ctx.fillRect(0, 0, W, H);
         let last_t = 0;
         const step = (t) => {
