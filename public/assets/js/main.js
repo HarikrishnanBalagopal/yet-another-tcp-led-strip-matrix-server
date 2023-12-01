@@ -6,23 +6,28 @@ const fract = (x) => x - Math.floor(x);
 
 const draw = (ctx, _t) => {
     // const t = _t * 0.001;
-    const t = _t * 0.0001;
+    const t = _t * 0.001;
     ctx.save();
-    // for (let r = 0; r < H; r++) {
-    //     for (let c = 0; c < W; c++) {
-    //         const idx = r * W + c;
-    //         const deg = 360 * fract(t + idx / TOTAL_CELL);
-    //         ctx.fillStyle = `hsl(${deg}deg, 100%, 50%)`;
-    //         ctx.fillRect(c, r, 1, 1);
-    //     }
-    // }
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#0000ff';
-    ctx.font = "13px serif";
-    const text = "Happy Dussehra!!";
-    const text_len = text.length * 6;
-    ctx.fillText(text, 10 + fract(t) * -text_len, 10);
+    for (let r = 0; r < H; r++) {
+        const offset_x = Math.floor(Math.sin(r/6+t) * 13);
+        for (let c = 0; c < W-offset_x; c++) {
+            const idx = r * W + c;
+            const deg = 360 * fract(t + idx / TOTAL_CELL);
+            ctx.fillStyle = `hsl(${deg}deg, 100%, 50%)`;
+            ctx.fillRect(c, r, 1, 1);
+        }
+        for (let c = W-offset_x; c < W; c++) {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(c, r, 1, 1);
+        }
+    }
+    // ctx.fillStyle = 'black';
+    // ctx.fillRect(0, 0, W, H);
+    // ctx.fillStyle = '#0000ff';
+    // ctx.font = "13px serif";
+    // const text = "Happy Dussehra!!";
+    // const text_len = text.length * 6;
+    // ctx.fillText(text, 10 + fract(t) * -text_len, 10);
     ctx.restore();
 };
 
