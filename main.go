@@ -43,8 +43,8 @@ func main() {
 
 	logrus.Infof("tcp setup start")
 	remoteAddr := net.TCPAddr{
-		// IP:   net.IPv4(192, 168, 0, 8),
-		IP:   net.IPv4(192, 168, 0, 5),
+		IP: net.IPv4(192, 168, 0, 8),
+		// IP:   net.IPv4(192, 168, 0, 5),
 		Port: 8888,
 	}
 	conn, err := net.DialTCP("tcp", nil, &remoteAddr)
