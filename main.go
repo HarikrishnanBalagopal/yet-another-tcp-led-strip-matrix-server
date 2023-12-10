@@ -4,11 +4,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"syscall"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cast"
 )
 
 func must(err error) {
@@ -40,13 +42,28 @@ func setup() {
 func main() {
 	logrus.Infof("main start")
 	setup()
-
+	logrus.Infof("args: %+v", os.Args)
+	args := os.Args
+	if len(args) > 2 {
+		panic("usage: leds <last byte of ip address>")
+	}
+	lastByte := 8
+	var err error
+	if len(args) == 2 {
+		lastByte, err = cast.ToIntE(args[1])
+		if err != nil {
+			panic(err)
+		}
+		if lastByte < 0 || lastByte > 255 {
+			panic("ip address last byte has to be between 0 - 255")
+		}
+	}
 	logrus.Infof("tcp setup start")
 	remoteAddr := net.TCPAddr{
-		IP: net.IPv4(192, 168, 0, 8),
-		// IP:   net.IPv4(192, 168, 0, 5),
+		IP:   net.IPv4(192, 168, 0, byte(lastByte)),
 		Port: 8888,
 	}
+	logrus.Infof("connecting to LED strip TCP server at %s", &remoteAddr.IP)
 	conn, err := net.DialTCP("tcp", nil, &remoteAddr)
 	must(err)
 	defer conn.Close()
